@@ -180,7 +180,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun com.glosc.images.data.api.ProviderTestResult.toModelMessage(): String =
         if (imageModels.isEmpty()) {
-            "连接成功 · 共 ${modelCount} 个模型，但没有 tags 包含 image 的模型"
+            "连接成功 · 共 ${modelCount} 个模型，但没有 categories 包含 image 的模型"
         } else {
             "连接成功 · 共 ${modelCount} 个模型 · 已筛选 ${imageModels.size} 个图片模型"
         }

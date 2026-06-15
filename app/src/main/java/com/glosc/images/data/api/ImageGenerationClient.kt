@@ -71,7 +71,7 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
             val models = response.body()?.data.orEmpty()
             count = models.size
             imageModels = models
-                .filter { it.tags.containsImageTag() }
+                .filter { it.categories.containsImageCategory() }
                 .mapNotNull { it.id }
                 .distinct()
         }
@@ -115,7 +115,7 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
         return if (path == "/") "${withSlash}v1/" else withSlash
     }
 
-    private fun JsonElement?.containsImageTag(): Boolean {
+    private fun JsonElement?.containsImageCategory(): Boolean {
         val values = mutableListOf<String>()
         fun collect(element: JsonElement?) {
             when {

@@ -35,7 +35,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## API 配置
 
-应用默认服务商为 Glosc AI，默认渠道为 `https://one.gloscai.com/`。网络层会请求 `/v1/models` 获取模型列表，并只使用 `tags` 中包含 `image` 的模型作为图片模型。
+应用默认服务商为 Glosc AI，默认渠道为 `https://one.gloscai.com/`。网络层会请求 `/v1/models` 获取模型列表，并只使用 `categories` 中包含 `image` 的模型作为图片模型。
 
 首次生成前需要在“设置”页保存 API Key，并点击“获取模型列表”。从 [这里](https://one.gloscai.com/keys) 获取 key。Key 会写入 Android Keystore 加密存储，不会进入 Room 或日志。
 

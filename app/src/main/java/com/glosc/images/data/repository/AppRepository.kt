@@ -91,7 +91,7 @@ class AppRepository(
         val selectedModel = request.model
             .ifBlank { provider.defaultModel }
             .ifBlank { provider.imageModels.firstOrNull().orEmpty() }
-            .ifBlank { throw AppException("请先在 API 设置中获取 tags 包含 image 的图片模型") }
+            .ifBlank { throw AppException("请先在 API 设置中获取 categories 包含 image 的图片模型") }
         val now = System.currentTimeMillis()
         val taskId = UUID.randomUUID().toString()
         dao.upsertTask(
@@ -252,7 +252,7 @@ class AppRepository(
             else -> provider.defaultModel
         }
         val status = if (imageModels.isEmpty()) {
-            "连接成功 · 未找到 tags 包含 image 的模型"
+            "连接成功 · 未找到 categories 包含 image 的模型"
         } else {
             "连接成功 · ${imageModels.size} 个图片模型"
         }

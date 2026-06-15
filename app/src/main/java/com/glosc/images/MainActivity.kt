@@ -346,7 +346,7 @@ class MainActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         content.addSpaced(actions)
         renderSettingsState(content)
-        content.addSpaced(note("模型列表来自 /v1/models，仅使用 tags 包含 image 的模型作为图片模型。API Key 使用 Android Keystore 加密存储，不会写入明文或日志。"))
+        content.addSpaced(note("模型列表来自 /v1/models，仅使用 categories 包含 image 的模型作为图片模型。API Key 使用 Android Keystore 加密存储，不会写入明文或日志。"))
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(bottomNav(AppScreen.Settings))
     }

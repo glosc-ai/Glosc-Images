@@ -31,7 +31,7 @@ data class OpenAiModelsResponse(
 
 data class OpenAiModel(
     val id: String?,
-    val tags: JsonElement?
+    val categories: JsonElement?
 )
 
 interface OpenAiApi {
