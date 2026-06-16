@@ -39,6 +39,8 @@ app/build/outputs/apk/debug/app-debug.apk
 
 首次生成前需要在“设置”页保存 API Key，并点击“获取模型列表”。从 [这里](https://one.gloscai.com/keys) 获取 key。Key 会写入 Android Keystore 加密存储，不会进入 Room 或日志。
 
+首次启动时应用会自动进入“配置引导”页，按步骤帮助用户保存 Glosc AI Key、获取图片模型列表、选择默认图片模型。只有启用服务商已保存 Key 且至少有一个图片模型时，才会进入主生图界面。
+
 ## 验证
 
 已验证：

@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.glosc.images"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.glosc.images"
@@ -41,6 +41,35 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+        managedDevices {
+            localDevices {
+                create("compactPhoneApi35") {
+                    device = "Pixel 2"
+                    apiLevel = 35
+                    systemImageSource = "aosp-atd"
+                }
+                create("expandedTabletApi35") {
+                    device = "Pixel Tablet"
+                    apiLevel = 35
+                    systemImageSource = "aosp-atd"
+                }
+            }
+            groups {
+                create("screenSizeRegression") {
+                    targetDevices.add(allDevices["compactPhoneApi35"])
+                    targetDevices.add(allDevices["expandedTabletApi35"])
+                }
+            }
+        }
+    }
+    compileSdkMinor = 0
+    buildToolsVersion = "37.0.0"
+    ndkVersion = "29.0.13846066 rc3"
 }
 
 kapt {
@@ -66,4 +95,9 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+
+    androidTestImplementation("androidx.test:core-ktx:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit-ktx:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }

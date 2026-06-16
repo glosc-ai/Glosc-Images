@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 enum class AppScreen {
+    Onboarding,
     Generate,
     Chat,
     Library,
@@ -50,14 +51,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         emptyList()
     )
 
-    val screen = MutableStateFlow(AppScreen.Generate)
+    val screen = MutableStateFlow(AppScreen.Onboarding)
     val selectedImageId = MutableStateFlow<String?>(null)
     val operation = MutableStateFlow<UiState<List<ImageAsset>>>(UiState.Idle)
+    val chatState = MutableStateFlow<UiState<String>>(UiState.Idle)
     val settingsState = MutableStateFlow<UiState<String>>(UiState.Idle)
 
     init {
         viewModelScope.launch {
             repository.bootstrap()
+            screen.value = if (repository.isInitialized()) AppScreen.Generate else AppScreen.Onboarding
         }
     }
 
@@ -83,7 +86,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendChat(content: String) {
         viewModelScope.launch {
-            repository.sendChatMessage(content)
+            if (content.isBlank()) return@launch
+            chatState.value = UiState.Loading
+            runCatching { repository.sendChatMessage(content) }
+                .onSuccess { chatState.value = UiState.Idle }
+                .onFailure { chatState.value = UiState.Error(it.message ?: "发送失败", it) }
         }
     }
 
@@ -106,7 +113,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsState.value = UiState.Loading
             settingsState.value = runCatching {
                 repository.saveProvider(id, name, baseUrl, apiKey, type, model, enabled)
-                "已保存。API Key 已写入 Android Keystore 加密存储。"
+                if (apiKey.isNullOrBlank()) {
+                    "已保存。API Key 未修改。"
+                } else {
+                    "已保存。API Key 已写入 Android Keystore 加密存储。"
+                }
             }.fold(
                 onSuccess = { UiState.Success(it) },
                 onFailure = { UiState.Error(it.message ?: "保存失败", it) }
@@ -144,6 +155,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.fold(
                 onSuccess = { UiState.Success(it) },
                 onFailure = { UiState.Error(it.message ?: "获取模型列表失败", it) }
+            )
+        }
+    }
+
+    fun completeOnboarding() {
+        viewModelScope.launch {
+            settingsState.value = UiState.Loading
+            val initialized = repository.isInitialized()
+            if (initialized) {
+                settingsState.value = UiState.Success("初始化完成")
+                screen.value = AppScreen.Generate
+            } else {
+                settingsState.value = UiState.Error("请先保存 API Key，并获取至少一个 categories 包含 image 的模型")
+            }
+        }
+    }
+
+    fun saveProviderAndCompleteOnboarding(
+        id: String,
+        name: String,
+        baseUrl: String,
+        apiKey: String?,
+        type: ProviderType,
+        model: String,
+        enabled: Boolean
+    ) {
+        viewModelScope.launch {
+            settingsState.value = UiState.Loading
+            settingsState.value = runCatching {
+                repository.saveProvider(id, name, baseUrl, apiKey, type, model, enabled)
+                if (!repository.isInitialized()) {
+                    throw IllegalStateException("请先保存 API Key，并获取至少一个 categories 包含 image 的模型")
+                }
+                screen.value = AppScreen.Generate
+                "初始化完成"
+            }.fold(
+                onSuccess = { UiState.Success(it) },
+                onFailure = { UiState.Error(it.message ?: "初始化失败", it) }
             )
         }
     }

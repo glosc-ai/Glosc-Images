@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.net.URI
 import java.util.UUID
 
 class AppRepository(
@@ -51,6 +52,12 @@ class AppRepository(
         return dao.getActiveProvider()?.toDomain() ?: throw AppException("没有启用的 API 服务商")
     }
 
+    suspend fun isInitialized(): Boolean = withContext(Dispatchers.IO) {
+        ensureDefaultProvider()
+        val provider = dao.getActiveProvider() ?: return@withContext false
+        keyStore.has(provider.apiKeyAlias) && provider.imageModels.isNotBlank()
+    }
+
     suspend fun saveProvider(
         id: String,
         name: String,
@@ -60,8 +67,10 @@ class AppRepository(
         defaultModel: String,
         enabled: Boolean
     ) = withContext(Dispatchers.IO) {
-        if (!baseUrl.trim().startsWith("https://")) {
-            throw AppException("Base URL 需要使用 https://")
+        val cleanBaseUrl = baseUrl.trim().ifBlank { DEFAULT_PROVIDER_BASE_URL }
+        val uri = runCatching { URI(cleanBaseUrl) }.getOrNull()
+        if (uri?.scheme != "https" || uri.host.isNullOrBlank()) {
+            throw AppException("Base URL 需要是有效的 https:// 地址")
         }
         val alias = id.ifBlank { UUID.randomUUID().toString() }
         val existing = dao.getProvider(alias)
@@ -71,7 +80,7 @@ class AppRepository(
             ApiProviderEntity(
                 id = alias,
                 name = name.ifBlank { DEFAULT_PROVIDER_NAME },
-                baseUrl = baseUrl.trim().ifBlank { DEFAULT_PROVIDER_BASE_URL },
+                baseUrl = cleanBaseUrl,
                 apiKeyAlias = alias,
                 providerType = providerType.name,
                 defaultModel = defaultModel.ifBlank { existing?.defaultModel.orEmpty() },

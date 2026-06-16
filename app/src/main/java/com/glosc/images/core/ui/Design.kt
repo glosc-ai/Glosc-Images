@@ -31,6 +31,14 @@ object Design {
     const val Ok = 0xFF70E09A.toInt()
     const val Warn = 0xFFEAC95E.toInt()
     const val Danger = 0xFFFF6F61.toInt()
+
+    const val TextLabel = 14f
+    const val TextTitle = 24f
+    const val TextBody = 16f
+    const val TextMeta = 14f
+    const val TextInput = 16f
+    const val TextChip = 14f
+    const val TextButton = 16f
 }
 
 fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -84,41 +92,49 @@ fun LinearLayout.addSpaced(view: View, params: LinearLayout.LayoutParams? = null
             addView(View(context), LinearLayout.LayoutParams(spacerSize, 1))
         }
     }
-    addView(view, params ?: LinearLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        ViewGroup.LayoutParams.WRAP_CONTENT
-    ))
+    val defaultParams = if (orientation == LinearLayout.VERTICAL) {
+        LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    } else {
+        LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+    addView(view, params ?: defaultParams)
 }
 
 fun Context.label(text: String) = TextView(this).apply {
     this.text = text
     setTextColor(Design.Muted)
-    textSize = 12f
+    textSize = Design.TextLabel
     typeface = Typeface.DEFAULT_BOLD
 }
 
-fun Context.title(text: String, size: Float = 22f) = TextView(this).apply {
+fun Context.title(text: String, size: Float = Design.TextTitle) = TextView(this).apply {
     this.text = text
     setTextColor(Design.Fg)
     textSize = size
     typeface = Typeface.DEFAULT_BOLD
 }
 
-fun Context.bodyText(text: String, color: Int = Design.Fg, size: Float = 14f) = TextView(this).apply {
+fun Context.bodyText(text: String, color: Int = Design.Fg, size: Float = Design.TextBody) = TextView(this).apply {
     this.text = text
     setTextColor(color)
     textSize = size
-    setLineSpacing(0f, 1.12f)
+    setLineSpacing(0f, 1.18f)
 }
 
-fun Context.mono(text: String, color: Int = Design.Muted, size: Float = 12f) = TextView(this).apply {
+fun Context.mono(text: String, color: Int = Design.Muted, size: Float = Design.TextMeta) = TextView(this).apply {
     this.text = text
     setTextColor(color)
     textSize = size
     typeface = Typeface.MONOSPACE
 }
 
-fun Context.card(padding: Int = 14) = column(padding = padding, gap = 8).apply {
+fun Context.card(padding: Int = 16) = column(padding = padding, gap = 10).apply {
     roundedBg(Design.Surface, radiusDp = 14, strokeColor = Design.Border)
 }
 
@@ -132,11 +148,12 @@ fun Context.input(
     setHint(hint)
     setTextColor(Design.Fg)
     setHintTextColor(Design.Faint)
-    textSize = 14f
+    textSize = Design.TextInput
     setMinLines(minLines)
     setMaxLines(if (minLines > 1) 6 else 1)
     gravity = Gravity.TOP or Gravity.START
-    setPadding(dp(12), dp(10), dp(12), dp(10))
+    setPadding(dp(14), dp(12), dp(14), dp(12))
+    minHeight = dp(if (minLines > 1) 96 else 52)
     inputType = if (numeric) {
         InputType.TYPE_CLASS_NUMBER
     } else if (minLines > 1) {
@@ -154,10 +171,10 @@ fun Context.chip(
 ) = TextView(this).apply {
     this.text = text
     setTextColor(if (selected) Design.Accent else Design.Muted)
-    textSize = 12f
+    textSize = Design.TextChip
     typeface = Typeface.MONOSPACE
     gravity = Gravity.CENTER
-    setPadding(dp(12), dp(7), dp(12), dp(7))
+    setPadding(dp(14), dp(9), dp(14), dp(9))
     roundedBg(
         color = if (selected) 0x223FD7E8 else Design.Surface,
         radiusDp = 999,
@@ -170,8 +187,9 @@ fun Context.primaryButton(text: String, onClick: () -> Unit) = Button(this).appl
     this.text = text
     isAllCaps = false
     setTextColor(0xFF102025.toInt())
-    textSize = 15f
+    textSize = Design.TextButton
     typeface = Typeface.DEFAULT_BOLD
+    minHeight = dp(50)
     roundedBg(Design.Accent, radiusDp = 10)
     setOnClickListener { onClick() }
 }
@@ -180,7 +198,8 @@ fun Context.ghostButton(text: String, onClick: () -> Unit) = Button(this).apply 
     this.text = text
     isAllCaps = false
     setTextColor(Design.Fg)
-    textSize = 14f
+    textSize = Design.TextButton
+    minHeight = dp(50)
     roundedBg(Design.Surface2, radiusDp = 10, strokeColor = Design.Border)
     setOnClickListener { onClick() }
 }
@@ -189,6 +208,8 @@ fun Context.dangerButton(text: String, onClick: () -> Unit) = Button(this).apply
     this.text = text
     isAllCaps = false
     setTextColor(Design.Danger)
+    textSize = Design.TextButton
+    minHeight = dp(50)
     roundedBg(0x22FF6F61, radiusDp = 10, strokeColor = Design.Danger)
     setOnClickListener { onClick() }
 }
