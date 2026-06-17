@@ -5,9 +5,11 @@ import com.glosc.images.domain.model.ApiProvider
 import com.glosc.images.domain.model.GenerateImageRequest
 import com.google.gson.JsonElement
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
 
@@ -53,9 +55,12 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
             throw AppException("图片生成失败：HTTP ${response.code()} ${response.message()}")
         }
 
-        val images = response.body()?.data.orEmpty().mapNotNull { it.b64Json }
+        val images = response.body()?.data.orEmpty().mapNotNull { image ->
+            image.b64Json?.takeIf { it.isNotBlank() }
+                ?: image.url?.takeIf { it.isNotBlank() }?.let { downloadImageAsBase64(it) }
+        }
         if (images.isEmpty()) {
-            throw AppException("图片生成成功但响应中没有 base64 图片数据")
+            throw AppException("图片生成成功但响应中没有可保存的图片数据")
         }
         return GenerateImageResult(images, request.model.ifBlank { provider.defaultModel })
     }
@@ -102,6 +107,23 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(OpenAiApi::class.java)
+    }
+
+    private fun downloadImageAsBase64(url: String): String {
+        val response = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .build()
+            .newCall(Request.Builder().url(url).build())
+            .execute()
+        response.use {
+            if (!it.isSuccessful) {
+                throw AppException("图片生成成功但下载图片失败：HTTP ${it.code} ${it.message}")
+            }
+            val bytes = it.body?.bytes() ?: throw AppException("图片生成成功但下载内容为空")
+            if (bytes.isEmpty()) throw AppException("图片生成成功但下载内容为空")
+            return Base64.getEncoder().encodeToString(bytes)
+        }
     }
 
     private fun buildPrompt(prompt: String, negativePrompt: String): String =

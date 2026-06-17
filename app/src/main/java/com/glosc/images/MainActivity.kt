@@ -9,17 +9,21 @@ import android.text.SpannableString
 import android.text.Spanned
 import android.text.InputType
 import android.text.TextPaint
+import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -74,6 +78,7 @@ class MainActivity : ComponentActivity() {
     private var selectedQuality = "high"
     private var selectedCount = 1
     private var seedValue = "284197"
+    private var generateModel = ""
     private var libraryQuery = ""
     private var libraryFilter = "all"
     private var settingsProviderId = ""
@@ -205,44 +210,15 @@ class MainActivity : ComponentActivity() {
         val body = scrollBody()
         val content = body.getChildAt(0) as LinearLayout
 
-        content.addSpaced(providerCard())
-        content.addSpaced(section("提示词"))
-        content.addSpaced(input("描述你想要的画面", promptValue, minLines = 4).apply {
+        content.addSpaced(generateConfigPanel())
+        content.addSpaced(label("提示词"))
+        content.addSpaced(input("描述你想要的画面", promptValue, minLines = 3).apply {
+            minHeight = dp(86)
             doAfterTextChanged { promptValue = it?.toString().orEmpty() }
         })
-        content.addSpaced(label("负向提示词（可选）"))
-        content.addSpaced(input("不希望出现的元素", negativeValue, minLines = 2).apply {
+        content.addSpaced(input("负向提示词（可选）", negativeValue).apply {
+            minHeight = dp(48)
             doAfterTextChanged { negativeValue = it?.toString().orEmpty() }
-        })
-
-        content.addSpaced(section("参数"))
-        content.addSpaced(card().apply {
-            addSpaced(label("尺寸"))
-            addSpaced(chipRow(
-                options = listOf("1024x1024" to "1024²", "1024x1536" to "1024×1536", "1536x1024" to "1536×1024"),
-                selected = selectedSize
-            ) { selectedSize = it; render() })
-            addSpaced(label("质量"))
-            addSpaced(chipRow(
-                options = listOf("medium" to "标准", "high" to "高清", "auto" to "自动"),
-                selected = selectedQuality
-            ) { selectedQuality = it; render() })
-            val paramRow = row(gap = 10)
-            paramRow.addSpaced(column(gap = 8).apply {
-                addSpaced(label("数量"))
-                addSpaced(chipRow(
-                    options = listOf("1" to "1", "2" to "2", "4" to "4"),
-                    selected = selectedCount.toString()
-                ) { selectedCount = it.toInt(); render() })
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            paramRow.addSpaced(column(gap = 8).apply {
-                addSpaced(label("随机种子"))
-                addSpaced(input("留空随机", seedValue, numeric = true).apply {
-                    typeface = android.graphics.Typeface.MONOSPACE
-                    doAfterTextChanged { seedValue = it?.toString().orEmpty() }
-                })
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.3f))
-            addSpaced(paramRow)
         })
 
         val generating = vm.operation.value is UiState.Loading
@@ -261,7 +237,7 @@ class MainActivity : ComponentActivity() {
             )
         }.apply { isEnabled = !generating })
 
-        renderGenerationState(content)
+        renderGenerationState(content, showIdle = true)
         content.addSpaced(section("最近任务"))
         content.addSpaced(taskList(vm.recentTasks.value))
         content.addGap(8)
