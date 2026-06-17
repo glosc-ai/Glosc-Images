@@ -67,6 +67,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ThreadLocalRandom
 
 class MainActivity : ComponentActivity() {
     private lateinit var vm: MainViewModel
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
     private var settingsEnabled = true
     private var settingsProviderType = ProviderType.OpenAi
     private var libraryGridMode = true
+    private var seedRefreshGenerationKey = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -181,10 +183,11 @@ class MainActivity : ComponentActivity() {
         content.addSpaced(section("3. 选择默认图片模型"))
         content.addSpaced(card().apply {
             val modelOptions = imageModelOptions()
-            addSpaced(chipRow(
+            addSpaced(dropdown(
+                labelText = "默认模型",
                 options = modelOptions,
                 selected = settingsModel.ifBlank { modelOptions.firstOrNull()?.first.orEmpty() }
-            ) { settingsModel = it; render() })
+            ) { settingsModel = it })
             addSpaced(bodyText("后续工程生图、对话生图和图片编辑都会默认使用这个模型。", Design.Muted, 14f))
         })
 
@@ -206,23 +209,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderGenerate() {
+        refreshSeedAfterCompletedGenerate()
         root.addView(appBar("工程模式", "生成图片", action = "历史任务") { showTasks() })
         val body = scrollBody()
         val content = body.getChildAt(0) as LinearLayout
 
         content.addSpaced(generateConfigPanel())
         content.addSpaced(label("提示词"))
-        content.addSpaced(input("描述你想要的画面", promptValue, minLines = 3).apply {
+        val promptInput = input("描述你想要的画面", promptValue, minLines = 3).apply {
             minHeight = dp(86)
             doAfterTextChanged { promptValue = it?.toString().orEmpty() }
-        })
-        content.addSpaced(input("负向提示词（可选）", negativeValue).apply {
+        }
+        content.addSpaced(promptInput)
+        val negativeInput = input("负向提示词（可选）", negativeValue).apply {
             minHeight = dp(48)
             doAfterTextChanged { negativeValue = it?.toString().orEmpty() }
-        })
+        }
+        content.addSpaced(negativeInput)
 
         val generating = vm.operation.value is UiState.Loading
         content.addSpaced(primaryButton(if (generating) "生成中..." else "生成图片") {
+            promptValue = promptInput.text?.toString().orEmpty()
+            negativeValue = negativeInput.text?.toString().orEmpty()
             vm.generate(
                 GenerateImageRequest(
                     prompt = promptValue,
@@ -244,6 +252,19 @@ class MainActivity : ComponentActivity() {
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(bottomNav(AppScreen.Generate))
     }
+
+    private fun refreshSeedAfterCompletedGenerate() {
+        val state = vm.operation.value as? UiState.Success<List<ImageAsset>> ?: return
+        val generated = state.data.filter { it.sourceType == SourceType.Generate }
+        if (generated.isEmpty()) return
+        val generationKey = generated.joinToString("|") { it.id }
+        if (generationKey == seedRefreshGenerationKey) return
+        seedRefreshGenerationKey = generationKey
+        seedValue = nextSeedValue()
+    }
+
+    private fun nextSeedValue(): String =
+        ThreadLocalRandom.current().nextInt(100000, 1_000_000).toString()
 
     private fun renderChat() {
         root.addView(appBar("对话模式", "创意助手", action = "新会话") { vm.newChat() })
@@ -295,7 +316,7 @@ class MainActivity : ComponentActivity() {
         val images = filteredImages()
         if (images.isEmpty()) {
             content.addGap(42)
-            content.addSpaced(bodyText("没有匹配的图片\n试试其他关键词", Design.Faint, 16f).apply {
+            content.addSpaced(bodyText("还没有生成图片\n去生图页生成第一张作品", Design.Faint, 16f).apply {
                 gravity = Gravity.CENTER
             })
         } else {
@@ -383,12 +404,12 @@ class MainActivity : ComponentActivity() {
                 doAfterTextChanged { settingsKey = it?.toString().orEmpty() }
             })
             addSpaced(keyLinkPrompt())
-            addSpaced(label("默认模型"))
             val modelOptions = imageModelOptions()
-            addSpaced(chipRow(
+            addSpaced(dropdown(
+                labelText = "默认模型",
                 options = modelOptions,
                 selected = settingsModel.ifBlank { modelOptions.firstOrNull()?.first.orEmpty() }
-            ) { settingsModel = it; render() })
+            ) { settingsModel = it })
             addSpaced(label("状态"))
             addSpaced(chipRow(
                 options = listOf("true" to "启用", "false" to "停用"),
@@ -462,22 +483,65 @@ class MainActivity : ComponentActivity() {
         setPadding(0, dp(8), 0, 0)
     }
 
-    private fun providerCard(): View {
+    private fun generateConfigPanel(): View {
         val provider = activeProvider()
-        return card().apply {
-            val row = row(gap = 10)
-            row.addSpaced(column(gap = 3).apply {
-                addSpaced(label("服务商 / 模型"))
-                addSpaced(mono("${provider?.name ?: "Glosc AI"} · ${provider.displayModel()}", Design.Accent, 15f))
+        return card(padding = 10).apply {
+            val modelRow = row(gap = 8, gravity = Gravity.BOTTOM)
+            modelRow.addSpaced(dropdown(
+                labelText = "模型",
+                options = generateModelOptions(),
+                selected = activeImageModel()
+            ) { generateModel = it }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            modelRow.addSpaced(ghostButton("设置") { vm.open(AppScreen.Settings) }, LinearLayout.LayoutParams(dp(72), dp(64)))
+            addSpaced(modelRow)
+
+            val params = row(gap = 8, gravity = Gravity.BOTTOM)
+            params.addSpaced(dropdown(
+                labelText = "尺寸",
+                options = listOf("1024x1024" to "1024²", "1024x1536" to "1024×1536", "1536x1024" to "1536×1024"),
+                selected = selectedSize
+            ) { selectedSize = it }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f))
+            params.addSpaced(dropdown(
+                labelText = "质量",
+                options = listOf("medium" to "标准", "high" to "高清", "auto" to "自动"),
+                selected = selectedQuality
+            ) { selectedQuality = it }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.95f))
+            params.addSpaced(dropdown(
+                labelText = "数量",
+                options = listOf("1" to "1", "2" to "2", "4" to "4"),
+                selected = selectedCount.toString()
+            ) { selectedCount = it.toInt() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.75f))
+            params.addSpaced(column(gap = 4).apply {
+                addSpaced(label("种子").apply { textSize = 12f })
+                addSpaced(input("随机", seedValue, numeric = true).apply {
+                    textSize = 14f
+                    minHeight = dp(46)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    doAfterTextChanged { seedValue = it?.toString().orEmpty() }
+                })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addSpaced(chip("切换") { vm.open(AppScreen.Settings) })
-            addSpaced(row)
+            addSpaced(params)
+
+            addSpaced(mono("${provider?.name ?: "Glosc AI"} · ${provider.displayModel()}", Design.Faint, 12f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
         }
     }
 
-    private fun renderGenerationState(content: LinearLayout) {
+    private fun renderGenerationState(content: LinearLayout, showIdle: Boolean = false) {
         when (val state = vm.operation.value) {
-            UiState.Idle -> Unit
+            UiState.Idle -> {
+                if (showIdle) {
+                    content.addSpaced(section("结果"))
+                    content.addSpaced(card(padding = 12).apply {
+                        addSpaced(bodyText("生成结果会显示在这里", Design.Faint, 15f).apply {
+                            gravity = Gravity.CENTER
+                        })
+                    })
+                }
+            }
             UiState.Loading -> {
                 content.addSpaced(section("结果"))
                 content.addSpaced(card().apply {
@@ -719,6 +783,68 @@ class MainActivity : ComponentActivity() {
         return scroll
     }
 
+    private fun dropdown(
+        labelText: String,
+        options: List<Pair<String, String>>,
+        selected: String,
+        onSelect: (String) -> Unit
+    ): View {
+        val values = options.ifEmpty { listOf("" to "无可用选项") }
+        val selectedIndex = values.indexOfFirst { it.first == selected }.takeIf { it >= 0 } ?: 0
+        val labels = values.map { it.second }
+        var lastValue = values[selectedIndex].first
+        return column(gap = 4).apply {
+            addSpaced(label(labelText).apply { textSize = 12f })
+            addSpaced(Spinner(this@MainActivity).apply {
+                adapter = object : ArrayAdapter<String>(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_item,
+                    labels
+                ) {
+                    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        return styleSpinnerText(super.getView(position, convertView, parent), dropdown = false)
+                    }
+
+                    override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        return styleSpinnerText(super.getDropDownView(position, convertView, parent), dropdown = true)
+                    }
+                }.apply {
+                    setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                }
+                roundedBg(Design.Surface2, radiusDp = 9, strokeColor = Design.Border)
+                minimumHeight = dp(46)
+                setPopupBackgroundDrawable(android.graphics.drawable.ColorDrawable(Design.Surface2))
+                setSelection(selectedIndex, false)
+                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        val value = values[position].first
+                        if (value != lastValue) {
+                            lastValue = value
+                            onSelect(value)
+                        }
+                    }
+
+                    override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+                }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+        }
+    }
+
+    private fun styleSpinnerText(view: View, dropdown: Boolean): View {
+        (view as? TextView)?.apply {
+            setTextColor(Design.Fg)
+            textSize = 14f
+            typeface = if (dropdown) Typeface.DEFAULT else Typeface.DEFAULT_BOLD
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(if (dropdown) 12 else 8), dp(10), dp(if (dropdown) 12 else 8))
+            if (!dropdown) text = "${text}  ▾"
+            if (dropdown) setBackgroundColor(Design.Surface2)
+        }
+        return view
+    }
+
     private fun bottomNav(current: AppScreen): View = row(padding = 10, gap = 4).apply {
         roundedBg(0xEE20232A.toInt(), radiusDp = 0, strokeColor = Design.Border)
         listOf(
@@ -741,7 +867,9 @@ class MainActivity : ComponentActivity() {
 
     private fun activeImageModel(): String {
         val provider = activeProvider()
-        return provider?.defaultModel
+        val models = provider?.imageModels.orEmpty()
+        return generateModel.takeIf { selected -> selected.isNotBlank() && (models.isEmpty() || selected in models) }
+            ?: provider?.defaultModel
             ?.ifBlank { provider.imageModels.firstOrNull().orEmpty() }
             .orEmpty()
     }
@@ -768,6 +896,19 @@ class MainActivity : ComponentActivity() {
             .distinct()
         return if (options.isEmpty()) {
             listOf("" to "先获取模型列表")
+        } else {
+            options.map { it to it }
+        }
+    }
+
+    private fun generateModelOptions(): List<Pair<String, String>> {
+        val provider = activeProvider()
+        val options = (provider?.imageModels.orEmpty() + provider?.defaultModel.orEmpty() + generateModel)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        return if (options.isEmpty()) {
+            listOf("" to "先获取模型")
         } else {
             options.map { it to it }
         }
@@ -823,6 +964,8 @@ class MainActivity : ComponentActivity() {
     private fun filteredImages(): List<ImageAsset> {
         val q = libraryQuery.trim().lowercase(Locale.CHINA)
         return vm.images.value.filter { asset ->
+            asset.localPath.isNotBlank() && File(asset.localPath).exists()
+        }.filter { asset ->
             val okFilter = when (libraryFilter) {
                 "all" -> true
                 "fav" -> asset.favorite

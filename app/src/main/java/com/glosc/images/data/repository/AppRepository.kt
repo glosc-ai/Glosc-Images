@@ -37,7 +37,9 @@ class AppRepository(
 
     val images: Flow<List<ImageAsset>> = dao.observeImages().map { list -> list.map { it.toDomain() } }
     val recentTasks: Flow<List<GenerationTask>> = dao.observeRecentTasks().map { list -> list.map { it.toDomain() } }
-    val providers: Flow<List<ApiProvider>> = dao.observeProviders().map { list -> list.map { it.toDomain() } }
+    val providers: Flow<List<ApiProvider>> = dao.observeProviders().map { list ->
+        list.map { it.toDomain().withCompatibleImageModels() }
+    }
     val chatMessages: Flow<List<ChatMessage>> = dao.observeMessages(DEFAULT_CONVERSATION_ID)
         .map { list -> list.map { it.toDomain() } }
 
@@ -49,13 +51,14 @@ class AppRepository(
 
     suspend fun activeProvider(): ApiProvider {
         ensureDefaultProvider()
-        return dao.getActiveProvider()?.toDomain() ?: throw AppException("没有启用的 API 服务商")
+        return dao.getActiveProvider()?.toDomain()?.withCompatibleImageModels()
+            ?: throw AppException("没有启用的 API 服务商")
     }
 
     suspend fun isInitialized(): Boolean = withContext(Dispatchers.IO) {
         ensureDefaultProvider()
-        val provider = dao.getActiveProvider() ?: return@withContext false
-        keyStore.has(provider.apiKeyAlias) && provider.imageModels.isNotBlank()
+        val provider = dao.getActiveProvider()?.toDomain()?.withCompatibleImageModels() ?: return@withContext false
+        keyStore.has(provider.apiKeyAlias) && provider.imageModels.isNotEmpty()
     }
 
     suspend fun saveProvider(
@@ -76,6 +79,10 @@ class AppRepository(
         val existing = dao.getProvider(alias)
         apiKey?.takeIf { it.isNotBlank() && !it.contains("••") }?.let { keyStore.save(alias, it.trim()) }
         if (enabled) dao.disableAllProviders()
+        val cleanDefaultModel = defaultModel
+            .takeIf { it.isNotBlank() && !it.isKnownIncompatibleImageModel() }
+            ?: existing?.defaultModel?.takeIf { it.isNotBlank() && !it.isKnownIncompatibleImageModel() }
+            ?: ""
         dao.upsertProvider(
             ApiProviderEntity(
                 id = alias,
@@ -83,7 +90,7 @@ class AppRepository(
                 baseUrl = cleanBaseUrl,
                 apiKeyAlias = alias,
                 providerType = providerType.name,
-                defaultModel = defaultModel.ifBlank { existing?.defaultModel.orEmpty() },
+                defaultModel = cleanDefaultModel,
                 imageModels = existing?.imageModels.orEmpty(),
                 enabled = enabled,
                 lastTestedAt = null,
@@ -97,9 +104,14 @@ class AppRepository(
         val provider = activeProvider()
         val apiKey = keyStore.read(provider.apiKeyAlias)
             ?: throw AppException("请先在 API 设置中保存 API Key")
-        val selectedModel = request.model
-            .ifBlank { provider.defaultModel }
-            .ifBlank { provider.imageModels.firstOrNull().orEmpty() }
+        val requestedModel = request.model.trim()
+        val selectedModel = when {
+            requestedModel.isNotBlank() &&
+                !requestedModel.isKnownIncompatibleImageModel() &&
+                (provider.imageModels.isEmpty() || requestedModel in provider.imageModels) -> requestedModel
+            provider.defaultModel.isNotBlank() -> provider.defaultModel
+            else -> provider.imageModels.firstOrNull().orEmpty()
+        }
             .ifBlank { throw AppException("请先在 API 设置中获取 categories 包含 image 的图片模型") }
         val now = System.currentTimeMillis()
         val taskId = UUID.randomUUID().toString()
@@ -254,16 +266,17 @@ class AppRepository(
         val provider = activeProvider()
         val apiKey = keyStore.read(provider.apiKeyAlias) ?: throw AppException("请先保存 API Key")
         val result = imageClient.test(provider, apiKey)
-        val imageModels = result.imageModels
+        val imageModels = result.imageModels.compatibleImageModels()
+        val hiddenCount = result.imageModels.size - imageModels.size
         val selectedDefault = when {
             provider.defaultModel in imageModels -> provider.defaultModel
-            imageModels.isNotEmpty() -> imageModels.first()
+            imageModels.isNotEmpty() -> imageModels.preferredImageModel().orEmpty()
             else -> provider.defaultModel
         }
-        val status = if (imageModels.isEmpty()) {
-            "连接成功 · 未找到 categories 包含 image 的模型"
-        } else {
-            "连接成功 · ${imageModels.size} 个图片模型"
+        val status = when {
+            imageModels.isEmpty() -> "连接成功 · 未找到可用图片模型"
+            hiddenCount > 0 -> "连接成功 · ${imageModels.size} 个可用图片模型 · 已隐藏 ${hiddenCount} 个异常模型"
+            else -> "连接成功 · ${imageModels.size} 个图片模型"
         }
         dao.updateProviderModels(
             id = provider.id,
@@ -272,7 +285,7 @@ class AppRepository(
             testedAt = System.currentTimeMillis(),
             status = status
         )
-        result
+        result.copy(imageModels = imageModels)
     }
 
     suspend fun toggleFavorite(id: String, favorite: Boolean) = withContext(Dispatchers.IO) {
@@ -390,6 +403,28 @@ class AppRepository(
         SourceType.Transform -> "变换, 版本"
     }
 
+    private fun ApiProvider.withCompatibleImageModels(): ApiProvider {
+        val filteredModels = imageModels.compatibleImageModels()
+        val filteredDefault = when {
+            defaultModel.isBlank() || defaultModel.isKnownIncompatibleImageModel() -> filteredModels.preferredImageModel().orEmpty()
+            filteredModels.isEmpty() -> defaultModel
+            defaultModel in filteredModels -> defaultModel
+            else -> filteredModels.preferredImageModel().orEmpty()
+        }
+        return copy(defaultModel = filteredDefault, imageModels = filteredModels)
+    }
+
+    private fun List<String>.compatibleImageModels(): List<String> =
+        filterNot { it.isKnownIncompatibleImageModel() }
+
+    private fun List<String>.preferredImageModel(): String? =
+        preferredImageModelFallbacks.firstNotNullOfOrNull { preferred ->
+            firstOrNull { it.equals(preferred, ignoreCase = true) }
+        } ?: firstOrNull()
+
+    private fun String.isKnownIncompatibleImageModel(): Boolean =
+        knownIncompatibleImageModels.any { equals(it, ignoreCase = true) }
+
     private fun MessageEntity.toDomain() = ChatMessage(
         id = id,
         conversationId = conversationId,
@@ -415,6 +450,21 @@ class AppRepository(
         const val DEFAULT_PROVIDER_NAME = "Glosc AI"
         const val DEFAULT_PROVIDER_BASE_URL = "https://one.gloscai.com/"
         const val DEFAULT_CONVERSATION_ID = "default-conversation"
+
+        val knownIncompatibleImageModels = setOf(
+            "alibaba/qwen-image-2.0",
+            "alibaba/qwen-image-2.0-pro",
+            "google/gemini-2.5-flash-image",
+            "google/gemini-3-pro-image",
+            "google/gemini-3.1-flash-image-preview",
+            "gpt-image-2"
+        )
+
+        val preferredImageModelFallbacks = listOf(
+            "Agnes/agnes-image-2.1-flash",
+            "Agnes/agnes-image-2.0-flash",
+            "openai/gpt-image-2"
+        )
 
         val sampleImages = listOf(
             SampleImage("赛博城市夜景，霓虹倒影，电影级广角，体积光", SourceType.Generate, "Glosc image model", 1024, 1536, "284197", true, "城市, 赛博, 夜景"),

@@ -9,6 +9,8 @@ import okhttp3.mockwebserver.MockWebServer
 import okio.Buffer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.util.Base64
 
@@ -54,6 +56,45 @@ class OpenAiImageGenerationClientTest {
             assertArrayEquals(imageBytes, decoded)
             assertEquals("/v1/images/generations", server.takeRequest().path)
             assertEquals("/assets/generated.png", server.takeRequest().path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun generateIncludesProviderErrorMessageWhenRequestFails() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setBody("""{"error":{"message":"url error, please check url"}}""")
+                    .setHeader("Content-Type", "application/json")
+            )
+
+            try {
+                OpenAiImageGenerationClient().generate(
+                    provider = ApiProvider(
+                        id = "test",
+                        name = "Test",
+                        baseUrl = server.url("/").toString(),
+                        apiKeyAlias = "test",
+                        providerType = ProviderType.OpenAi,
+                        defaultModel = "image-model",
+                        imageModels = listOf("image-model"),
+                        enabled = true,
+                        lastTestedAt = null,
+                        lastStatus = null
+                    ),
+                    apiKey = "test-key",
+                    request = GenerateImageRequest(prompt = "prompt", model = "image-model")
+                )
+                fail("Expected request to fail")
+            } catch (error: Exception) {
+                assertTrue(error.message.orEmpty().contains("HTTP 400"))
+                assertTrue(error.message.orEmpty().contains("url error, please check url"))
+            }
         } finally {
             server.shutdown()
         }

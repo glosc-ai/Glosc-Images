@@ -3,6 +3,7 @@
 .idea/
 build/
 local.properties
+.env
 captures/
 *.iml
 app/build/

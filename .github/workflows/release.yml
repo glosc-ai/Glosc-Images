@@ -1,0 +1,79 @@
+name: Build release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  android-release:
+    name: Build and upload Android release
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare release version
+        run: |
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Decode Android signing key
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "ANDROID_RELEASE_SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "ANDROID_RELEASE_SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test and build release packages
+        run: |
+          ./gradlew testDebugUnitTest assembleRelease bundleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE"
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+
+          SIGNING_SUFFIX="unsigned"
+          if [ "${ANDROID_RELEASE_SIGNING_ENABLED:-false}" = "true" ]; then
+            SIGNING_SUFFIX="signed"
+          fi
+
+          APK_PATH="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          AAB_PATH="$(find app/build/outputs/bundle/release -type f -name '*.aab' | head -n 1)"
+
+          test -n "$APK_PATH"
+          test -n "$AAB_PATH"
+
+          cp "$APK_PATH" "release-assets/glosc-images-${VERSION_NAME}-${SIGNING_SUFFIX}.apk"
+          cp "$AAB_PATH" "release-assets/glosc-images-${VERSION_NAME}-${SIGNING_SUFFIX}.aab"
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber

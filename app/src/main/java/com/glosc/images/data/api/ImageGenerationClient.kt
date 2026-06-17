@@ -4,9 +4,11 @@ import com.glosc.images.core.common.AppException
 import com.glosc.images.domain.model.ApiProvider
 import com.glosc.images.domain.model.GenerateImageRequest
 import com.google.gson.JsonElement
+import com.google.gson.JsonParser
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Base64
@@ -52,7 +54,7 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
         )
 
         if (!response.isSuccessful) {
-            throw AppException("图片生成失败：HTTP ${response.code()} ${response.message()}")
+            throw response.toAppException("图片生成失败")
         }
 
         val images = response.body()?.data.orEmpty().mapNotNull { image ->
@@ -71,7 +73,7 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
         val elapsed = measureTimeMillis {
             val response = api(provider, apiKey).listModels()
             if (!response.isSuccessful) {
-                throw AppException("获取模型列表失败：HTTP ${response.code()} ${response.message()}")
+                throw response.toAppException("获取模型列表失败")
             }
             val models = response.body()?.data.orEmpty()
             count = models.size
@@ -128,6 +130,35 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
 
     private fun buildPrompt(prompt: String, negativePrompt: String): String =
         if (negativePrompt.isBlank()) prompt else "$prompt\n\nAvoid: $negativePrompt"
+
+    private fun Response<*>.toAppException(prefix: String): AppException {
+        val status = buildString {
+            append("HTTP ")
+            append(code())
+            message().takeIf { it.isNotBlank() }?.let { append(" ").append(it) }
+        }
+        val detail = errorBody()?.string()?.extractErrorMessage().orEmpty()
+        return AppException(if (detail.isBlank()) "$prefix：$status" else "$prefix：$status\n$detail")
+    }
+
+    private fun String.extractErrorMessage(): String {
+        val raw = trim()
+        if (raw.isBlank()) return ""
+        val parsed = runCatching {
+            val root = JsonParser.parseString(raw)
+            val obj = root.takeIf { it.isJsonObject }?.asJsonObject
+            val error = obj?.get("error")
+            when {
+                error?.isJsonObject == true -> error.asJsonObject.get("message")
+                    ?.takeIf { it.isJsonPrimitive }
+                    ?.asString
+                obj?.get("message")?.isJsonPrimitive == true -> obj.get("message").asString
+                error?.isJsonPrimitive == true -> error.asString
+                else -> null
+            }?.trim()
+        }.getOrNull().orEmpty()
+        return parsed.ifBlank { raw.take(500) }
+    }
 
     private fun String.normalizedBaseUrl(): String {
         val trimmed = trim().ifBlank { "https://one.gloscai.com/" }
