@@ -4,7 +4,9 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.InputType
@@ -54,6 +56,8 @@ import com.glosc.images.core.ui.roundedBg
 import com.glosc.images.core.ui.row
 import com.glosc.images.core.ui.title
 import com.glosc.images.domain.model.ApiProvider
+import com.glosc.images.domain.model.AppUpdateInfo
+import com.glosc.images.domain.model.AppUpdateStatus
 import com.glosc.images.domain.model.GenerateImageRequest
 import com.glosc.images.domain.model.GenerationTask
 import com.glosc.images.domain.model.ImageAsset
@@ -91,6 +95,8 @@ class MainActivity : ComponentActivity() {
     private var settingsProviderType = ProviderType.OpenAi
     private var libraryGridMode = true
     private var seedRefreshGenerationKey = ""
+    private var shownUpdateTag = ""
+    private var launchedUpdateApkPath = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,6 +118,7 @@ class MainActivity : ComponentActivity() {
                 launch { vm.chatState.collect { render() } }
                 launch { vm.operation.collect { render() } }
                 launch { vm.settingsState.collect { render() } }
+                launch { vm.updateState.collect { state -> handleUpdateState(state); render() } }
             }
         }
         render()
@@ -445,6 +452,8 @@ class MainActivity : ComponentActivity() {
         content.addSpaced(actions)
         renderSettingsState(content)
         content.addSpaced(note("模型列表来自 /v1/models，仅使用 categories 包含 image 的模型作为图片模型。API Key 使用 Android Keystore 加密存储，不会写入明文或日志。"))
+        content.addSpaced(section("应用更新"))
+        content.addSpaced(updatePanel())
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(bottomNav(AppScreen.Settings))
     }
@@ -769,6 +778,54 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun updatePanel(): View = card().apply {
+        addSpaced(mono("当前版本 ${currentVersionName()}", Design.Faint, 14f))
+        when (val state = vm.updateState.value) {
+            UiState.Idle -> {
+                addSpaced(bodyText("从 GitHub Releases 检查最新 APK。", Design.Muted, 14f))
+                addSpaced(primaryButton("检查更新") { vm.checkForUpdates() })
+            }
+            UiState.Loading -> {
+                addSpaced(note("正在检查或下载更新..."))
+            }
+            is UiState.Error -> {
+                addSpaced(note(state.message, danger = true))
+                addSpaced(primaryButton("重新检查") { vm.checkForUpdates() })
+            }
+            is UiState.Success -> {
+                val status = state.data
+                val info = status.info
+                addSpaced(note(status.message))
+                if (info != null) {
+                    addSpaced(mono("最新版本 ${info.tagName.ifBlank { info.latestVersionName }}", Design.Faint, 14f))
+                    if (info.apkAssetName.isNotBlank()) {
+                        addSpaced(mono("${info.apkAssetName} · ${formatBytes(info.apkSizeBytes)}", Design.Faint, 14f))
+                    }
+                    info.releaseNotes.takeIf { it.isNotBlank() }?.let {
+                        addSpaced(bodyText(it.take(220), Design.Muted, 14f).apply {
+                            maxLines = 4
+                            ellipsize = TextUtils.TruncateAt.END
+                        })
+                    }
+                }
+                val actions = row(gap = 10)
+                actions.addSpaced(ghostButton("重新检查") { vm.checkForUpdates() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                when {
+                    !status.downloadedApkPath.isNullOrBlank() -> {
+                        actions.addSpaced(primaryButton("安装更新") { installUpdateApk(status.downloadedApkPath) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    }
+                    info?.updateAvailable == true -> {
+                        actions.addSpaced(primaryButton("下载并安装") { vm.downloadUpdate(info) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    }
+                    info?.htmlUrl?.isNotBlank() == true -> {
+                        actions.addSpaced(ghostButton("发布页") { openUrl(info.htmlUrl) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    }
+                }
+                addSpaced(actions)
+            }
+        }
+    }
+
     private fun chipRow(
         options: List<Pair<String, String>>,
         selected: String,
@@ -914,6 +971,70 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handleUpdateState(state: UiState<AppUpdateStatus>) {
+        val status = (state as? UiState.Success)?.data ?: return
+        status.downloadedApkPath?.takeIf { it.isNotBlank() }?.let { path ->
+            if (path != launchedUpdateApkPath) {
+                launchedUpdateApkPath = path
+                installUpdateApk(path)
+            }
+            return
+        }
+        val info = status.info ?: return
+        if (info.updateAvailable && info.tagName != shownUpdateTag) {
+            shownUpdateTag = info.tagName
+            showUpdateDialog(info)
+        }
+    }
+
+    private fun showUpdateDialog(info: AppUpdateInfo) {
+        val notes = info.releaseNotes.take(300).ifBlank { "此版本没有填写发布说明。" }
+        AlertDialog.Builder(this)
+            .setTitle("发现新版本 ${info.tagName}")
+            .setMessage(
+                "当前版本：${info.currentVersionName}\n" +
+                    "安装包：${info.apkAssetName} · ${formatBytes(info.apkSizeBytes)}\n\n" +
+                    notes
+            )
+            .setPositiveButton("下载并安装") { _, _ -> vm.downloadUpdate(info) }
+            .setNeutralButton("发布页") { _, _ -> openUrl(info.htmlUrl) }
+            .setNegativeButton("稍后", null)
+            .show()
+    }
+
+    private fun installUpdateApk(path: String) {
+        val file = File(path)
+        if (!file.exists()) {
+            Toast.makeText(this, "更新包不存在，请重新下载", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this)
+                .setTitle("允许安装更新")
+                .setMessage("需要先允许 GloscAI Images 安装 APK。授权后回到设置页，点击“安装更新”。")
+                .setPositiveButton("去授权") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { Toast.makeText(this, "无法打开系统安装器：${it.message}", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun openUrl(url: String) {
+        if (url.isBlank()) return
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .onFailure { Toast.makeText(this, "无法打开链接：${it.message}", Toast.LENGTH_LONG).show() }
+    }
+
     private fun shareImage(asset: ImageAsset) {
         val file = asset.localPath.takeIf { it.isNotBlank() }?.let { File(it) }
         if (file == null || !file.exists()) {
@@ -1021,4 +1142,26 @@ class MainActivity : ComponentActivity() {
     private fun formatTime(time: Long): String = SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(time))
 
     private fun formatDate(time: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(time))
+
+    private fun currentVersionName(): String {
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+        return info.versionName ?: "0.0.0"
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        if (bytes <= 0L) return "未知大小"
+        val units = listOf("B", "KB", "MB", "GB")
+        var value = bytes.toDouble()
+        var unit = 0
+        while (value >= 1024 && unit < units.lastIndex) {
+            value /= 1024
+            unit += 1
+        }
+        return if (unit == 0) "${bytes}B" else String.format(Locale.US, "%.1f%s", value, units[unit])
+    }
 }

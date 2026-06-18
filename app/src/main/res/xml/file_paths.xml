@@ -3,4 +3,7 @@
     <files-path
         name="generated_images"
         path="images/" />
+    <files-path
+        name="update_apks"
+        path="updates/" />
 </paths>

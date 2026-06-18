@@ -11,7 +11,9 @@ import com.glosc.images.data.db.GloscDao
 import com.glosc.images.data.db.ImageAssetEntity
 import com.glosc.images.data.db.MessageEntity
 import com.glosc.images.data.storage.ImageFileStorage
+import com.glosc.images.data.update.GitHubReleaseUpdateClient
 import com.glosc.images.domain.model.ApiProvider
+import com.glosc.images.domain.model.AppUpdateInfo
 import com.glosc.images.domain.model.ChatMessage
 import com.glosc.images.domain.model.GenerateImageRequest
 import com.glosc.images.domain.model.GenerationTask
@@ -24,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.URI
 import java.util.UUID
 
@@ -31,7 +34,8 @@ class AppRepository(
     private val dao: GloscDao,
     private val storage: ImageFileStorage,
     private val keyStore: ApiKeyStore,
-    private val imageClient: ImageGenerationClient
+    private val imageClient: ImageGenerationClient,
+    private val updateClient: GitHubReleaseUpdateClient
 ) {
     private val gson = Gson()
 
@@ -308,6 +312,14 @@ class AppRepository(
             storage.delete(it.localPath)
             dao.deleteImage(id)
         }
+    }
+
+    suspend fun checkForUpdate(currentVersionName: String): AppUpdateInfo = withContext(Dispatchers.IO) {
+        updateClient.checkLatest(currentVersionName)
+    }
+
+    suspend fun downloadUpdate(update: AppUpdateInfo): File = withContext(Dispatchers.IO) {
+        updateClient.downloadApk(update)
     }
 
     private suspend fun ensureDefaultProvider() {

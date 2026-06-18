@@ -1,11 +1,14 @@
 package com.glosc.images.ui
 
 import android.app.Application
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.glosc.images.GloscImagesApp
 import com.glosc.images.core.common.UiState
 import com.glosc.images.domain.model.ApiProvider
+import com.glosc.images.domain.model.AppUpdateInfo
+import com.glosc.images.domain.model.AppUpdateStatus
 import com.glosc.images.domain.model.ChatMessage
 import com.glosc.images.domain.model.GenerateImageRequest
 import com.glosc.images.domain.model.GenerationTask
@@ -56,11 +59,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val operation = MutableStateFlow<UiState<List<ImageAsset>>>(UiState.Idle)
     val chatState = MutableStateFlow<UiState<String>>(UiState.Idle)
     val settingsState = MutableStateFlow<UiState<String>>(UiState.Idle)
+    val updateState = MutableStateFlow<UiState<AppUpdateStatus>>(UiState.Idle)
 
     init {
         viewModelScope.launch {
             repository.bootstrap()
             screen.value = if (repository.isInitialized()) AppScreen.Generate else AppScreen.Onboarding
+            checkForUpdates(silent = true)
         }
     }
 
@@ -210,6 +215,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun checkForUpdates(silent: Boolean = false) {
+        viewModelScope.launch {
+            if (!silent) updateState.value = UiState.Loading
+            val result = runCatching {
+                repository.checkForUpdate(currentVersionName())
+            }
+            result.fold(
+                onSuccess = { info ->
+                    if (info.updateAvailable || !silent) {
+                        updateState.value = UiState.Success(AppUpdateStatus(info = info, message = info.message))
+                    }
+                },
+                onFailure = { error ->
+                    if (!silent) updateState.value = UiState.Error(error.message ?: "检查更新失败", error)
+                }
+            )
+        }
+    }
+
+    fun downloadUpdate(info: AppUpdateInfo) {
+        viewModelScope.launch {
+            updateState.value = UiState.Loading
+            updateState.value = runCatching {
+                val apk = repository.downloadUpdate(info)
+                AppUpdateStatus(
+                    info = info,
+                    message = "更新包已下载：${info.apkAssetName}",
+                    downloadedApkPath = apk.absolutePath
+                )
+            }.fold(
+                onSuccess = { UiState.Success(it) },
+                onFailure = { UiState.Error(it.message ?: "下载更新失败", it) }
+            )
+        }
+    }
+
     fun addTag(asset: ImageAsset, tag: String) {
         viewModelScope.launch {
             repository.addTag(asset.id, tag)
@@ -233,4 +274,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             "连接成功 · 共 ${modelCount} 个模型 · 已筛选 ${imageModels.size} 个图片模型"
         }
+
+    private fun currentVersionName(): String {
+        val app = getApplication<Application>()
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            app.packageManager.getPackageInfo(app.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            app.packageManager.getPackageInfo(app.packageName, 0)
+        }
+        return info.versionName ?: "0.0.0"
+    }
 }

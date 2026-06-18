@@ -87,3 +87,23 @@ data class ChatMessage(
     val imageAssetId: String?,
     val createdAt: Long
 )
+
+data class AppUpdateInfo(
+    val currentVersionName: String,
+    val latestVersionName: String,
+    val tagName: String,
+    val releaseName: String,
+    val releaseNotes: String,
+    val htmlUrl: String,
+    val apkAssetName: String,
+    val apkDownloadUrl: String,
+    val apkSizeBytes: Long,
+    val updateAvailable: Boolean,
+    val message: String
+)
+
+data class AppUpdateStatus(
+    val info: AppUpdateInfo?,
+    val message: String,
+    val downloadedApkPath: String? = null
+)
