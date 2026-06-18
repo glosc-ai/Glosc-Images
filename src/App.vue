@@ -9,7 +9,6 @@ import {
   KeyRound,
   MessageSquare,
   RefreshCw,
-  Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -60,6 +59,29 @@ const workflow = [
   '生成、继续编辑、收藏，并沉淀到本地图片库。',
 ]
 
+const screenshots = [
+  {
+    src: '/images/app-screens/generate.jpg',
+    title: '工程式生图',
+    text: '首屏直接完成模型、尺寸、质量、数量、种子和提示词输入。',
+  },
+  {
+    src: '/images/app-screens/chat.jpg',
+    title: '对话创作',
+    text: '用自然语言继续描述画面需求，适合灵感探索和迭代。',
+  },
+  {
+    src: '/images/app-screens/library.jpg',
+    title: '本地图片库',
+    text: '生成结果按作品保存，可筛选、搜索、收藏和继续编辑。',
+  },
+  {
+    src: '/images/app-screens/settings.jpg',
+    title: 'API 设置',
+    text: '连接 Glosc AI One，获取模型列表，并选择稳定可用的默认模型。',
+  },
+]
+
 const specs = [
   ['默认渠道', 'Glosc AI One'],
   ['接口形态', 'OpenAI-compatible Images API'],
@@ -78,6 +100,7 @@ const specs = [
 
       <nav class="nav-links" aria-label="主导航">
         <a href="#features">功能</a>
+        <a href="#screens">界面</a>
         <a href="#workflow">流程</a>
         <a href="#privacy">安全</a>
         <a href="#download">获取</a>
@@ -88,69 +111,12 @@ const specs = [
       <section class="hero-section" aria-labelledby="hero-title">
         <div class="hero-scene" aria-hidden="true">
           <div class="scene-grid"></div>
-          <div class="phone phone-main">
-            <div class="phone-status">
-              <span>9:41</span>
-              <span>Glosc</span>
-            </div>
-            <div class="app-toolbar">
-              <div>
-                <span class="mini-label">工程式生图</span>
-                <strong>Generate</strong>
-              </div>
-              <Sparkles :size="18" />
-            </div>
-            <div class="prompt-panel">
-              <span>Prompt</span>
-              <p>未来城市夜景，玻璃穹顶植物园，雨后霓虹反射</p>
-            </div>
-            <div class="option-grid">
-              <span>1024 x 1024</span>
-              <span>HD</span>
-              <span>4 images</span>
-              <span>Seed 1288</span>
-            </div>
-            <div class="image-board">
-              <div></div>
-              <div></div>
-              <div></div>
-              <div></div>
-            </div>
-          </div>
-
-          <div class="phone phone-side">
-            <div class="phone-status">
-              <span>9:42</span>
-              <span>Library</span>
-            </div>
-            <div class="library-head">
-              <Search :size="16" />
-              <span>搜索模型、标签、提示词</span>
-            </div>
-            <div class="asset-list">
-              <div class="asset-row">
-                <div class="thumb teal"></div>
-                <div>
-                  <strong>植物园夜景</strong>
-                  <span>favorite / cinematic</span>
-                </div>
-              </div>
-              <div class="asset-row">
-                <div class="thumb coral"></div>
-                <div>
-                  <strong>产品封面</strong>
-                  <span>studio / clean</span>
-                </div>
-              </div>
-              <div class="asset-row">
-                <div class="thumb ink"></div>
-                <div>
-                  <strong>头像变体</strong>
-                  <span>portrait / warm</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <figure class="screen-card screen-card-main">
+            <img src="/images/app-screens/generate.jpg" alt="" />
+          </figure>
+          <figure class="screen-card screen-card-side">
+            <img src="/images/app-screens/library.jpg" alt="" />
+          </figure>
         </div>
 
         <div class="hero-copy">
@@ -199,6 +165,23 @@ const specs = [
             <h3>{{ feature.title }}</h3>
             <p>{{ feature.text }}</p>
           </article>
+        </div>
+      </section>
+
+      <section id="screens" class="screenshots-section">
+        <div class="section-heading">
+          <span class="section-kicker">真实界面</span>
+          <h2>从 App 直接截取的核心页面</h2>
+        </div>
+
+        <div class="screenshot-grid">
+          <figure v-for="item in screenshots" :key="item.title" class="screenshot-item">
+            <img :src="item.src" :alt="item.title" loading="lazy" />
+            <figcaption>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.text }}</span>
+            </figcaption>
+          </figure>
         </div>
       </section>
 
