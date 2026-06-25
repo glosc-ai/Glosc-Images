@@ -1,0 +1,84 @@
+{
+  "project_info": {
+    "project_number": "224927712933",
+    "project_id": "gloscai",
+    "storage_bucket": "gloscai.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:224927712933:android:8c7d7fe5977bf470272f4c",
+        "android_client_info": {
+          "package_name": "com.gloscai.Images"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "224927712933-veun25in2v3queg77kn8gui0bq9gm3kq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDks3izaCPuMT-bjm2A3eg-BebFraeXoP0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "224927712933-veun25in2v3queg77kn8gui0bq9gm3kq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "224927712933-eq6ad4rj91jkkf1oc4tcgki0dltahes7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.gloscai.ios.glosc2fa",
+                "app_store_id": "6760886600"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:224927712933:android:1a729e5628236d2d272f4c",
+        "android_client_info": {
+          "package_name": "com.gloscai.nutri"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "224927712933-veun25in2v3queg77kn8gui0bq9gm3kq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDks3izaCPuMT-bjm2A3eg-BebFraeXoP0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "224927712933-veun25in2v3queg77kn8gui0bq9gm3kq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "224927712933-eq6ad4rj91jkkf1oc4tcgki0dltahes7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.gloscai.ios.glosc2fa",
+                "app_store_id": "6760886600"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

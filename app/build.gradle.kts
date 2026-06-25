@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
+    id("com.google.gms.google-services")
 }
 
 val releaseVersionCode = providers.gradleProperty("versionCode")
@@ -30,7 +31,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.glosc.images"
+        applicationId = "com.gloscai.Images"
         minSdk = 26
         targetSdk = 36
         versionCode = releaseVersionCode
@@ -114,6 +115,9 @@ kapt {
 }
 
 dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:34.6.0"))
+    implementation("com.google.firebase:firebase-analytics")
+
     implementation("androidx.core:core-ktx:1.13.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
