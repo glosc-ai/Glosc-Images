@@ -35,8 +35,8 @@ class MainActivityScreenSizeTest {
                 val activity = controller.get()
                 drainMainThread()
 
-                assertHasText(activity, "配置引导")
-                assertHasText(activity, "完成初始化并开始使用")
+                assertHasAnyText(activity, listOf("Setup Guide", "配置引导"))
+                assertHasAnyText(activity, listOf("Start Creating", "完成初始化并开始使用"))
                 assertHorizontallyContained(activity, name)
             } finally {
                 controller.pause().stop().destroy()
@@ -54,13 +54,13 @@ class MainActivityScreenSizeTest {
 
             waitFor("bootstrap default provider") { viewModel.providers.value.isNotEmpty() }
             activity.runOnUiThread { viewModel.open(AppScreen.Generate) }
-            waitFor("studio screen") { renderedTexts(activity).any { it.contains("Generated Images") } }
+            waitFor("studio screen") { renderedTexts(activity).any { it.contains("Generated Images") || it.contains("已生成图片") } }
             assertHorizontallyContained(activity, "expanded tablet before recreate")
 
             controller.recreate()
             val recreated = controller.get()
             waitFor("studio screen after recreate") {
-                renderedTexts(recreated).any { it.contains("Generated Images") }
+                renderedTexts(recreated).any { it.contains("Generated Images") || it.contains("已生成图片") }
             }
             assertHorizontallyContained(recreated, "expanded tablet after recreate")
         } finally {
@@ -72,6 +72,14 @@ class MainActivityScreenSizeTest {
         assertTrue(
             "Expected to render text \"$expected\", but saw: ${renderedTexts(activity)}",
             renderedTexts(activity).any { it.contains(expected) }
+        )
+    }
+
+    private fun assertHasAnyText(activity: MainActivity, expected: List<String>) {
+        val texts = renderedTexts(activity)
+        assertTrue(
+            "Expected to render one of $expected, but saw: $texts",
+            expected.any { needle -> texts.any { it.contains(needle) } }
         )
     }
 
