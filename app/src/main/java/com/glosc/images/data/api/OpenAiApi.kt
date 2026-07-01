@@ -2,9 +2,13 @@ package com.glosc.images.data.api
 
 import com.google.gson.annotations.SerializedName
 import com.google.gson.JsonElement
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
+import retrofit2.http.Part
 import retrofit2.http.POST
 
 data class OpenAiImageGenerationRequest(
@@ -38,6 +42,18 @@ interface OpenAiApi {
     @POST("images/generations")
     suspend fun generateImage(
         @Body request: OpenAiImageGenerationRequest
+    ): Response<OpenAiImageGenerationResponse>
+
+    @Multipart
+    @POST("images/edits")
+    suspend fun editImage(
+        @Part images: List<MultipartBody.Part>,
+        @Part("model") model: RequestBody,
+        @Part("prompt") prompt: RequestBody,
+        @Part("size") size: RequestBody,
+        @Part("quality") quality: RequestBody,
+        @Part("n") count: RequestBody,
+        @Part("output_format") outputFormat: RequestBody
     ): Response<OpenAiImageGenerationResponse>
 
     @GET("models")

@@ -6,11 +6,17 @@ import com.glosc.images.domain.model.GenerateImageRequest
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
@@ -43,15 +49,27 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
         apiKey: String,
         request: GenerateImageRequest
     ): GenerateImageResult {
-        val response = api(provider, apiKey).generateImage(
-            OpenAiImageGenerationRequest(
-                model = request.model.ifBlank { provider.defaultModel },
-                prompt = buildPrompt(request.prompt, request.negativePrompt),
-                size = request.size,
-                quality = request.quality,
-                count = request.count.coerceIn(1, 4)
+        val response = if (request.sourceImagePaths.isEmpty()) {
+            api(provider, apiKey).generateImage(
+                OpenAiImageGenerationRequest(
+                    model = request.model.ifBlank { provider.defaultModel },
+                    prompt = buildPrompt(request.prompt, request.negativePrompt),
+                    size = request.size,
+                    quality = request.quality,
+                    count = request.count.coerceIn(1, 4)
+                )
             )
-        )
+        } else {
+            api(provider, apiKey).editImage(
+                images = request.sourceImagePaths.take(16).map { path -> imagePart(File(path)) },
+                model = textPart(request.model.ifBlank { provider.defaultModel }),
+                prompt = textPart(buildPrompt(request.prompt, request.negativePrompt)),
+                size = textPart(request.size),
+                quality = textPart(request.quality),
+                count = textPart(request.count.coerceIn(1, 4).toString()),
+                outputFormat = textPart("png")
+            )
+        }
 
         if (!response.isSuccessful) {
             throw response.toAppException("图片生成失败")
@@ -127,6 +145,25 @@ class OpenAiImageGenerationClient : ImageGenerationClient {
             return Base64.getEncoder().encodeToString(bytes)
         }
     }
+
+    private fun imagePart(file: File): MultipartBody.Part {
+        if (!file.exists() || !file.isFile) {
+            throw AppException("参考图片不存在：${file.name}")
+        }
+        val mediaType = mediaTypeFor(file).toMediaTypeOrNull() ?: "application/octet-stream".toMediaType()
+        return MultipartBody.Part.createFormData("image", file.name, file.asRequestBody(mediaType))
+    }
+
+    private fun textPart(value: String) = value.toRequestBody("text/plain".toMediaType())
+
+    private fun mediaTypeFor(file: File): String =
+        when (file.extension.lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            else -> "application/octet-stream"
+        }
 
     private fun buildPrompt(prompt: String, negativePrompt: String): String =
         if (negativePrompt.isBlank()) prompt else "$prompt\n\nAvoid: $negativePrompt"

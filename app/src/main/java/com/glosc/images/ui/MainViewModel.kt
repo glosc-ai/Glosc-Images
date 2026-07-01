@@ -65,7 +65,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.bootstrap()
             screen.value = if (repository.isInitialized()) AppScreen.Generate else AppScreen.Onboarding
-            checkForUpdates(silent = true)
         }
     }
 

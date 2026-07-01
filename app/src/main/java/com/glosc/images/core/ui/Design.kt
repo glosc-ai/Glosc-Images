@@ -19,17 +19,17 @@ import com.glosc.images.domain.model.ImageAsset
 import java.io.File
 
 object Design {
-    const val Bg = 0xFF16181E.toInt()
-    const val Surface = 0xFF20232A.toInt()
-    const val Surface2 = 0xFF282C34.toInt()
+    const val Bg = 0xFF070809.toInt()
+    const val Surface = 0xFF101112.toInt()
+    const val Surface2 = 0xFF181A1B.toInt()
     const val Fg = 0xFFF3F5F8.toInt()
-    const val Muted = 0xFFA2AAB8.toInt()
-    const val Faint = 0xFF747C89.toInt()
-    const val Border = 0xFF3D4350.toInt()
-    const val Accent = 0xFF5ED7E8.toInt()
-    const val Accent2 = 0xFFD18CFF.toInt()
+    const val Muted = 0xFFA2A5AA.toInt()
+    const val Faint = 0xFF72767D.toInt()
+    const val Border = 0xFF2A2D30.toInt()
+    const val Accent = 0xFFFF8A1F.toInt()
+    const val Accent2 = 0xFFFFD42A.toInt()
     const val Ok = 0xFF70E09A.toInt()
-    const val Warn = 0xFFEAC95E.toInt()
+    const val Warn = 0xFFFFD42A.toInt()
     const val Danger = 0xFFFF6F61.toInt()
 
     const val TextLabel = 14f
@@ -53,6 +53,26 @@ fun View.roundedBg(
         setColor(color)
         cornerRadius = context.dp(radiusDp).toFloat()
         strokeColor?.let { setStroke(context.dp(strokeDp), it) }
+    }
+}
+
+fun View.dashedBg(
+    color: Int,
+    radiusDp: Int = 12,
+    strokeColor: Int = Design.Border,
+    strokeDp: Int = 1,
+    dashWidthDp: Int = 6,
+    dashGapDp: Int = 4
+) {
+    background = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = context.dp(radiusDp).toFloat()
+        setStroke(
+            context.dp(strokeDp),
+            strokeColor,
+            context.dp(dashWidthDp).toFloat(),
+            context.dp(dashGapDp).toFloat()
+        )
     }
 }
 
@@ -186,7 +206,7 @@ fun Context.chip(
 fun Context.primaryButton(text: String, onClick: () -> Unit) = Button(this).apply {
     this.text = text
     isAllCaps = false
-    setTextColor(0xFF102025.toInt())
+    setTextColor(0xFF171008.toInt())
     textSize = Design.TextButton
     typeface = Typeface.DEFAULT_BOLD
     minHeight = dp(50)

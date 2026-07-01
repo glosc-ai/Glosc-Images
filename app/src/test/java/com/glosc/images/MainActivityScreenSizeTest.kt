@@ -53,14 +53,14 @@ class MainActivityScreenSizeTest {
             val viewModel = ViewModelProvider(activity)[MainViewModel::class.java]
 
             waitFor("bootstrap default provider") { viewModel.providers.value.isNotEmpty() }
-            activity.runOnUiThread { viewModel.open(AppScreen.Library) }
-            waitFor("library screen") { renderedTexts(activity).any { it.contains("图片资产") } }
+            activity.runOnUiThread { viewModel.open(AppScreen.Generate) }
+            waitFor("studio screen") { renderedTexts(activity).any { it.contains("Generated Images") } }
             assertHorizontallyContained(activity, "expanded tablet before recreate")
 
             controller.recreate()
             val recreated = controller.get()
-            waitFor("library screen after recreate") {
-                renderedTexts(recreated).any { it.contains("图片资产") }
+            waitFor("studio screen after recreate") {
+                renderedTexts(recreated).any { it.contains("Generated Images") }
             }
             assertHorizontallyContained(recreated, "expanded tablet after recreate")
         } finally {

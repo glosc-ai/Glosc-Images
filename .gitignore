@@ -13,3 +13,4 @@ app/schemas/
 *.keystore
 secrets.properties
 .kotlin
+.playwright-cli

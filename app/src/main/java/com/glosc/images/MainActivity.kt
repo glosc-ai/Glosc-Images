@@ -1,11 +1,13 @@
 package com.glosc.images
 
 import android.app.AlertDialog
+import android.content.ContentResolver
 import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
@@ -24,11 +26,14 @@ import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.Lifecycle
@@ -45,6 +50,7 @@ import com.glosc.images.core.ui.card
 import com.glosc.images.core.ui.chip
 import com.glosc.images.core.ui.column
 import com.glosc.images.core.ui.dangerButton
+import com.glosc.images.core.ui.dashedBg
 import com.glosc.images.core.ui.dp
 import com.glosc.images.core.ui.ghostButton
 import com.glosc.images.core.ui.input
@@ -66,21 +72,38 @@ import com.glosc.images.domain.model.SourceType
 import com.glosc.images.domain.model.TaskStatus
 import com.glosc.images.ui.AppScreen
 import com.glosc.images.ui.MainViewModel
+import com.bumptech.glide.Glide
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ThreadLocalRandom
 
+private const val MAX_SOURCE_IMAGES = 16
+
+private enum class StudioMode {
+    TextToImage,
+    ImageToImage
+}
+
 class MainActivity : ComponentActivity() {
     private lateinit var vm: MainViewModel
     private lateinit var root: LinearLayout
 
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        sourceImageUris.clear()
+        sourceImageUris.addAll(uris.take(MAX_SOURCE_IMAGES))
+        render()
+    }
+
+    private var studioMode = StudioMode.TextToImage
+    private val sourceImageUris = mutableListOf<Uri>()
     private var promptValue = "一只机械蜂鸟悬停在发光的玻璃花朵旁，微距摄影，冷蓝色调，体积光，超精细细节"
     private var negativeValue = "模糊, 低分辨率, 水印, 畸变"
-    private var selectedSize = "1024x1536"
-    private var selectedQuality = "high"
+    private var selectedSize = "auto"
+    private var selectedQuality = "auto"
     private var selectedCount = 1
     private var seedValue = "284197"
     private var generateModel = ""
@@ -128,9 +151,9 @@ class MainActivity : ComponentActivity() {
         root.removeAllViews()
         when (vm.screen.value) {
             AppScreen.Onboarding -> renderOnboarding()
-            AppScreen.Generate -> renderGenerate()
-            AppScreen.Chat -> renderChat()
-            AppScreen.Library -> renderLibrary()
+            AppScreen.Generate -> renderStudio()
+            AppScreen.Chat -> renderStudio()
+            AppScreen.Library -> renderStudio()
             AppScreen.Settings -> renderSettings()
             AppScreen.Detail -> renderDetail()
         }
@@ -213,6 +236,402 @@ class MainActivity : ComponentActivity() {
         })
         content.addGap(10)
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+    }
+
+    private fun renderStudio() {
+        refreshSeedAfterCompletedGenerate()
+        val expanded = resources.configuration.screenWidthDp >= 700
+        if (expanded) {
+            root.addView(row(gap = 0).apply {
+                addSpaced(studioSidebar(), LinearLayout.LayoutParams(dp(255), ViewGroup.LayoutParams.MATCH_PARENT))
+                addSpaced(column(gap = 0).apply {
+                    addSpaced(studioPromoBar(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+                    addSpaced(studioTopBar(expanded = true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
+                    addSpaced(studioWorkspace(expanded = true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        } else {
+            root.addView(column(gap = 0).apply {
+                addSpaced(studioPromoBar(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+                addSpaced(studioTopBar(expanded = false), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
+                addSpaced(studioMobileTabs(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)))
+                addSpaced(studioWorkspace(expanded = false), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+    }
+
+    private fun studioPromoBar(): View = row(padding = 0, gap = 8, gravity = Gravity.CENTER).apply {
+        setBackgroundColor(Design.Accent2)
+        addSpaced(bodyText("Glosc One image models ready", 0xFF100D05.toInt(), 15f).apply {
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private fun studioTopBar(expanded: Boolean): View = row(gap = 10).apply {
+        setBackgroundColor(Design.Bg)
+        setPadding(dp(16), 0, dp(16), 0)
+        if (!expanded) {
+            addSpaced(studioLogoCompact(), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        } else {
+            addSpaced(row(gap = 22).apply {
+                addSpaced(topNavText("Text to Image", studioMode == StudioMode.TextToImage) {
+                    studioMode = StudioMode.TextToImage
+                    render()
+                })
+                addSpaced(topNavText("Image to Image", studioMode == StudioMode.ImageToImage) {
+                    studioMode = StudioMode.ImageToImage
+                    render()
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        addSpaced(ghostButton("API") {
+            (activeProvider() ?: vm.providers.value.firstOrNull())?.let { hydrateSettings(it, force = true) }
+            vm.open(AppScreen.Settings)
+        }, LinearLayout.LayoutParams(dp(72), dp(44)))
+    }
+
+    private fun studioLogoCompact(): View = row(gap = 10).apply {
+        addSpaced(bodyText("G", Design.Accent, 18f).apply {
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            roundedBg(0x22FF8A1F, radiusDp = 10, strokeColor = Design.Accent)
+        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        addSpaced(column(gap = 1).apply {
+            addSpaced(title("Glosc Images", 20f))
+            addSpaced(mono("AI Studio", Design.Faint, 12f))
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private fun studioSidebar(): View = column(gap = 0).apply {
+        setBackgroundColor(0xFF050506.toInt())
+        addSpaced(row(gap = 8).apply {
+            setPadding(dp(24), 0, dp(24), 0)
+            addSpaced(bodyText("AI Studio", Design.Fg, 16f).apply {
+                typeface = Typeface.DEFAULT_BOLD
+            })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        addSpaced(row(gap = 10).apply {
+            setPadding(dp(16), 0, dp(16), 0)
+            addSpaced(bodyText("G", Design.Accent, 20f).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                roundedBg(0x22FF8A1F, radiusDp = 12, strokeColor = Design.Accent)
+            }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addSpaced(title("Glosc Images", 22f))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
+        addSpaced(column(padding = 8, gap = 6).apply {
+            addSpaced(mono("IMAGE TOOLS", Design.Faint, 12f).apply {
+                setPadding(dp(16), dp(18), 0, dp(4))
+            })
+            addSpaced(studioNavItem("Text to Image", studioMode == StudioMode.TextToImage) {
+                studioMode = StudioMode.TextToImage
+                render()
+            })
+            addSpaced(studioNavItem("Image to Image", studioMode == StudioMode.ImageToImage) {
+                studioMode = StudioMode.ImageToImage
+                render()
+            })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun studioMobileTabs(): View = row(gap = 8).apply {
+        setBackgroundColor(Design.Bg)
+        setPadding(dp(8), dp(8), dp(8), dp(8))
+        addSpaced(studioNavItem("Text to Image", studioMode == StudioMode.TextToImage) {
+            studioMode = StudioMode.TextToImage
+            render()
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        addSpaced(studioNavItem("Image to Image", studioMode == StudioMode.ImageToImage) {
+            studioMode = StudioMode.ImageToImage
+            render()
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+    }
+
+    private fun studioWorkspace(expanded: Boolean): View {
+        val scroll = ScrollView(this).apply {
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val content = column(padding = if (expanded) 24 else 16, gap = 16)
+        if (expanded) {
+            content.addSpaced(row(gap = 24, gravity = Gravity.TOP).apply {
+                addSpaced(studioControlPanel(), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.9f))
+                addSpaced(studioResultsPanel(), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.1f))
+            })
+        } else {
+            content.addSpaced(studioControlPanel())
+            content.addSpaced(studioResultsPanel())
+        }
+        scroll.addView(content)
+        return scroll
+    }
+
+    private fun studioControlPanel(): View = studioPanel().apply {
+        addSpaced(label("Model"))
+        addSpaced(dropdown(
+            labelText = "",
+            options = generateModelOptions(),
+            selected = activeImageModel()
+        ) { generateModel = it })
+
+        if (studioMode == StudioMode.ImageToImage) {
+            addSpaced(label("Source Images"))
+            addSpaced(sourceUploadPanel())
+        }
+
+        addSpaced(label("Prompt"))
+        val promptInput = input(
+            if (studioMode == StudioMode.ImageToImage) {
+                "Describe how you want to transform the images..."
+            } else {
+                "Describe the image you want to generate..."
+            },
+            promptValue,
+            minLines = 4
+        ).apply {
+            minHeight = dp(120)
+            doAfterTextChanged { promptValue = it?.toString().orEmpty() }
+        }
+        addSpaced(promptInput)
+
+        addSpaced(label("Image Size"))
+        addSpaced(dropdown(
+            labelText = "",
+            options = imageSizeOptions(),
+            selected = selectedSize
+        ) { selectedSize = it })
+
+        addSpaced(row(gap = 10).apply {
+            addSpaced(label("Resolution"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addSpaced(resolutionButton("1K", enabled = true, selected = true))
+            addSpaced(resolutionButton("2K", enabled = false, selected = false))
+            addSpaced(resolutionButton("4K", enabled = false, selected = false))
+        })
+        addSpaced(bodyText("Auto ratio uses 1K. Higher resolutions stay disabled until the selected Glosc One model advertises support.", Design.Faint, 13f))
+
+        val generating = vm.operation.value is UiState.Loading
+        addSpaced(bodyText(generationHint(promptInput.text?.toString().orEmpty()), Design.Muted, 14f).apply {
+            gravity = Gravity.CENTER
+        })
+        addSpaced(primaryButton(if (generating) "Generating..." else "Generate") {
+            promptValue = promptInput.text?.toString().orEmpty()
+            val sourcePaths = if (studioMode == StudioMode.ImageToImage) {
+                runCatching { cacheSourceImages() }.getOrElse {
+                    Toast.makeText(this@MainActivity, it.message ?: "参考图片读取失败", Toast.LENGTH_LONG).show()
+                    return@primaryButton
+                }
+            } else {
+                emptyList()
+            }
+            vm.generate(
+                GenerateImageRequest(
+                    prompt = promptValue,
+                    negativePrompt = "",
+                    model = activeImageModel(),
+                    size = selectedSize,
+                    quality = selectedQuality,
+                    count = selectedCount,
+                    seed = seedValue,
+                    sourceType = if (studioMode == StudioMode.ImageToImage) SourceType.ImageToImage else SourceType.Generate,
+                    sourceImagePaths = sourcePaths
+                )
+            )
+        }.apply { isEnabled = !generating })
+    }
+
+    private fun studioResultsPanel(): View = studioPanel(minHeightDp = 410).apply {
+        val state = vm.operation.value
+        val latestImages = when (state) {
+            is UiState.Success -> state.data
+            else -> vm.images.value
+                .filter { it.localPath.isNotBlank() && File(it.localPath).exists() }
+                .sortedByDescending { it.createdAt }
+                .take(8)
+        }
+        addSpaced(row(gap = 8).apply {
+            addSpaced(column(gap = 4).apply {
+                addSpaced(title("Generated Images", 22f))
+                addSpaced(bodyText("You have ${vm.images.value.count { it.localPath.isNotBlank() && File(it.localPath).exists() }} creations", Design.Muted, 14f))
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        })
+        when (state) {
+            UiState.Loading -> {
+                addGap(70)
+                addSpaced(ProgressBar(this@MainActivity).apply {
+                    isIndeterminate = true
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                })
+                addSpaced(bodyText("Generating with Glosc One...", Design.Muted, 15f).apply {
+                    gravity = Gravity.CENTER
+                })
+            }
+            is UiState.Error -> {
+                addGap(24)
+                addSpaced(note(state.message, danger = true))
+            }
+            else -> {
+                if (latestImages.isEmpty()) {
+                    addGap(72)
+                    addSpaced(bodyText("▧", Design.Faint, 42f).apply {
+                        gravity = Gravity.CENTER
+                    })
+                    addSpaced(title("No images generated yet", 20f).apply {
+                        gravity = Gravity.CENTER
+                    })
+                    addSpaced(bodyText("Enter a prompt to generate your first AI image. Your results will appear here.", Design.Muted, 14f).apply {
+                        gravity = Gravity.CENTER
+                    })
+                } else {
+                    addSpaced(imageGrid(latestImages))
+                }
+            }
+        }
+    }
+
+    private fun studioPanel(minHeightDp: Int = 0): LinearLayout = column(padding = 24, gap = 14).apply {
+        roundedBg(Design.Surface, radiusDp = 12, strokeColor = Design.Border)
+        if (minHeightDp > 0) minimumHeight = dp(minHeightDp)
+    }
+
+    private fun studioNavItem(text: String, selected: Boolean, onClick: () -> Unit): View =
+        FrameLayout(this).apply {
+            roundedBg(if (selected) 0xFF1A1C1D.toInt() else 0x00000000, radiusDp = 6)
+            val label = bodyText(text, if (selected) Design.Fg else Design.Muted, 16f).apply {
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), 0, dp(18), 0)
+            }
+            addView(label, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+            if (selected) {
+                addView(View(this@MainActivity).apply {
+                    roundedBg(Design.Accent, radiusDp = 2)
+                }, FrameLayout.LayoutParams(dp(3), dp(22), Gravity.END or Gravity.CENTER_VERTICAL))
+            }
+            setOnClickListener { onClick() }
+        }
+
+    private fun topNavText(text: String, selected: Boolean, onClick: () -> Unit): View =
+        bodyText(text, if (selected) Design.Fg else Design.Faint, 15f).apply {
+            typeface = Typeface.DEFAULT_BOLD
+            setOnClickListener { onClick() }
+        }
+
+    private fun sourceUploadPanel(): View = column(gap = 10).apply {
+        addSpaced(FrameLayout(this@MainActivity).apply {
+            dashedBg(Design.Surface2, radiusDp = 10, strokeColor = 0xFF3A3D40.toInt(), dashWidthDp = 5, dashGapDp = 4)
+            addView(column(gap = 8, gravity = Gravity.CENTER).apply {
+                addSpaced(bodyText("⇧", Design.Muted, 34f).apply {
+                    gravity = Gravity.CENTER
+                })
+                addSpaced(title("Upload images", 20f).apply {
+                    gravity = Gravity.CENTER
+                })
+                addSpaced(bodyText("Tap to select reference images", Design.Muted, 14f).apply {
+                    gravity = Gravity.CENTER
+                })
+                addSpaced(bodyText("Supports JPG, PNG, GIF, WebP · Max $MAX_SOURCE_IMAGES images", Design.Faint, 12f).apply {
+                    gravity = Gravity.CENTER
+                })
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            setOnClickListener { imagePicker.launch("image/*") }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(210)))
+        if (sourceImageUris.isNotEmpty()) {
+            addSpaced(row(gap = 10).apply {
+                addSpaced(bodyText("${sourceImageUris.size} selected", Design.Muted, 14f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addSpaced(ghostButton("Clear") {
+                    sourceImageUris.clear()
+                    render()
+                }, LinearLayout.LayoutParams(dp(78), dp(42)))
+            })
+            addSpaced(sourcePreviewStrip())
+        }
+    }
+
+    private fun sourcePreviewStrip(): View {
+        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val strip = row(gap = 8)
+        sourceImageUris.forEach { uri ->
+            strip.addSpaced(FrameLayout(this).apply {
+                roundedBg(Design.Surface2, radiusDp = 8, strokeColor = Design.Border)
+                addView(ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    Glide.with(this).load(uri).centerCrop().into(this)
+                }, FrameLayout.LayoutParams(dp(76), dp(76)))
+            }, LinearLayout.LayoutParams(dp(76), dp(76)))
+        }
+        scroll.addView(strip)
+        return scroll
+    }
+
+    private fun resolutionButton(text: String, enabled: Boolean, selected: Boolean): View =
+        bodyText(text, if (selected) 0xFF171008.toInt() else Design.Faint, 14f).apply {
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            roundedBg(
+                color = when {
+                    selected -> Design.Accent
+                    enabled -> Design.Surface2
+                    else -> 0xFF121314.toInt()
+                },
+                radiusDp = 7,
+                strokeColor = if (selected) null else Design.Border
+            )
+            alpha = if (enabled || selected) 1f else 0.55f
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+
+    private fun imageSizeOptions(): List<Pair<String, String>> = listOf(
+        "auto" to "auto",
+        "1024x1024" to "1:1",
+        "1024x1536" to "2:3",
+        "1536x1024" to "3:2"
+    )
+
+    private fun generationHint(prompt: String): String =
+        when {
+            studioMode == StudioMode.ImageToImage && sourceImageUris.isEmpty() && prompt.isBlank() ->
+                "Please upload an image and enter a prompt to generate"
+            studioMode == StudioMode.ImageToImage && sourceImageUris.isEmpty() ->
+                "Please upload an image to generate"
+            prompt.isBlank() -> "Please enter a prompt to generate"
+            else -> "Ready to generate"
+        }
+
+    private fun cacheSourceImages(): List<String> {
+        if (sourceImageUris.isEmpty()) throw IllegalStateException("请先上传参考图片")
+        val dir = File(cacheDir, "source-images").apply { mkdirs() }
+        return sourceImageUris.take(MAX_SOURCE_IMAGES).mapIndexed { index, uri ->
+            val ext = contentResolver.fileExtension(uri)
+            val outFile = File(dir, "source_${System.currentTimeMillis()}_$index.$ext")
+            val input = contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("无法读取参考图片")
+            input.use { source ->
+                FileOutputStream(outFile).use { target -> source.copyTo(target) }
+            }
+            outFile.absolutePath
+        }
+    }
+
+    private fun ContentResolver.fileExtension(uri: Uri): String {
+        val fromMime = getType(uri)?.let { mime ->
+            MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+        }?.lowercase(Locale.US)
+        if (!fromMime.isNullOrBlank()) return fromMime
+        val name = query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                } else {
+                    null
+                }
+            }
+        return name?.substringAfterLast('.', missingDelimiterValue = "")
+            ?.takeIf { it.isNotBlank() }
+            ?.lowercase(Locale.US)
+            ?: "png"
     }
 
     private fun renderGenerate() {
@@ -371,34 +790,18 @@ class MainActivity : ComponentActivity() {
         if (settingsProviderId.isBlank()) {
             (activeProvider() ?: vm.providers.value.firstOrNull())?.let { hydrateSettings(it, force = true) }
         }
-        root.addView(appBar("连接", "API 设置"))
+        root.addView(appBar("Glosc One", "API 设置", action = "返回 Studio") { vm.open(AppScreen.Generate) })
         val body = scrollBody()
         val content = body.getChildAt(0) as LinearLayout
 
-        content.addSpaced(section("服务商"))
-        vm.providers.value.forEach { content.addSpaced(providerListItem(it)) }
-        content.addSpaced(ghostButton("添加自定义服务") {
-            settingsProviderId = "custom-${System.currentTimeMillis()}"
-            settingsName = "自定义服务"
-            settingsBaseUrl = "https://"
-            settingsModel = ""
-            settingsEnabled = true
-            settingsProviderType = ProviderType.Custom
-            settingsKey = ""
-            render()
-        })
+        settingsName = settingsName.ifBlank { "Glosc AI" }
+        settingsBaseUrl = settingsBaseUrl.ifBlank { "https://one.gloscai.com/" }
+        settingsEnabled = true
+        settingsProviderType = ProviderType.OpenAi
 
-        content.addSpaced(section("当前配置 · ${settingsName.ifBlank { "Glosc AI" }}"))
+        content.addSpaced(note("当前版本只保留 Text to Image、Image to Image 和 Glosc One 模型连接。"))
+        content.addSpaced(section("Glosc One"))
         content.addSpaced(card().apply {
-            addSpaced(label("显示名称"))
-            addSpaced(input("Glosc AI", settingsName).apply {
-                doAfterTextChanged { settingsName = it?.toString().orEmpty() }
-            })
-            addSpaced(label("类型"))
-            addSpaced(chipRow(
-                options = listOf(ProviderType.OpenAi.name to "openai", ProviderType.Custom.name to "custom"),
-                selected = settingsProviderType.name
-            ) { settingsProviderType = ProviderType.valueOf(it); render() })
             addSpaced(label("Base URL"))
             addSpaced(input("https://one.gloscai.com/", settingsBaseUrl).apply {
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -417,11 +820,6 @@ class MainActivity : ComponentActivity() {
                 options = modelOptions,
                 selected = settingsModel.ifBlank { modelOptions.firstOrNull()?.first.orEmpty() }
             ) { settingsModel = it })
-            addSpaced(label("状态"))
-            addSpaced(chipRow(
-                options = listOf("true" to "启用", "false" to "停用"),
-                selected = settingsEnabled.toString()
-            ) { settingsEnabled = it.toBoolean(); render() })
         })
 
         val actions = row(gap = 10)
@@ -452,10 +850,7 @@ class MainActivity : ComponentActivity() {
         content.addSpaced(actions)
         renderSettingsState(content)
         content.addSpaced(note("模型列表来自 /v1/models，仅使用 categories 包含 image 的模型作为图片模型。API Key 使用 Android Keystore 加密存储，不会写入明文或日志。"))
-        content.addSpaced(section("应用更新"))
-        content.addSpaced(updatePanel())
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(bottomNav(AppScreen.Settings))
     }
 
     private fun appBar(
@@ -851,7 +1246,9 @@ class MainActivity : ComponentActivity() {
         val labels = values.map { it.second }
         var lastValue = values[selectedIndex].first
         return column(gap = 4).apply {
-            addSpaced(label(labelText).apply { textSize = 12f })
+            if (labelText.isNotBlank()) {
+                addSpaced(label(labelText).apply { textSize = 12f })
+            }
             addSpaced(Spinner(this@MainActivity).apply {
                 adapter = object : ArrayAdapter<String>(
                     this@MainActivity,

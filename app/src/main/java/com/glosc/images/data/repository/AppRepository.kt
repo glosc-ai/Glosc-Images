@@ -105,6 +105,9 @@ class AppRepository(
 
     suspend fun generateImage(request: GenerateImageRequest): List<ImageAsset> = withContext(Dispatchers.IO) {
         if (request.prompt.isBlank()) throw AppException("请输入提示词")
+        if (request.sourceType == SourceType.ImageToImage && request.sourceImagePaths.isEmpty()) {
+            throw AppException("请先上传参考图片")
+        }
         val provider = activeProvider()
         val apiKey = keyStore.read(provider.apiKeyAlias)
             ?: throw AppException("请先在 API 设置中保存 API Key")
@@ -409,7 +412,8 @@ class AppRepository(
     }
 
     private fun defaultTags(sourceType: SourceType) = when (sourceType) {
-        SourceType.Generate -> "工程, 新作品"
+        SourceType.Generate -> "Text to Image, 新作品"
+        SourceType.ImageToImage -> "Image to Image, 新作品"
         SourceType.Chat -> "对话, 新作品"
         SourceType.Edit -> "编辑, 版本"
         SourceType.Transform -> "变换, 版本"

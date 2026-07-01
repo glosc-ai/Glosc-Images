@@ -1,7 +1,8 @@
 package com.glosc.images.domain.model
 
 enum class SourceType(val label: String) {
-    Generate("工程生成"),
+    Generate("Text to Image"),
+    ImageToImage("Image to Image"),
     Chat("对话生成"),
     Edit("图片编辑"),
     Transform("图片变换")
@@ -29,7 +30,8 @@ data class GenerateImageRequest(
     val count: Int = 1,
     val seed: String = "",
     val sourceType: SourceType = SourceType.Generate,
-    val parentImageId: String? = null
+    val parentImageId: String? = null,
+    val sourceImagePaths: List<String> = emptyList()
 )
 
 data class ImageAsset(

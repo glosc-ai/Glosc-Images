@@ -12,6 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.io.File
 import java.util.Base64
 
 class OpenAiImageGenerationClientTest {
@@ -97,6 +98,57 @@ class OpenAiImageGenerationClientTest {
             }
         } finally {
             server.shutdown()
+        }
+    }
+
+    @Test
+    fun imageToImageUsesEditsEndpointWithMultipartImages() = runBlocking {
+        val server = MockWebServer()
+        val sourceFile = File.createTempFile("source", ".png").apply {
+            writeBytes(byteArrayOf(9, 8, 7, 6))
+            deleteOnExit()
+        }
+        server.start()
+        try {
+            val imageBytes = byteArrayOf(6, 7, 8, 9)
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"data":[{"b64_json":"${Base64.getEncoder().encodeToString(imageBytes)}"}]}""")
+                    .setHeader("Content-Type", "application/json")
+            )
+
+            val result = OpenAiImageGenerationClient().generate(
+                provider = ApiProvider(
+                    id = "test",
+                    name = "Test",
+                    baseUrl = server.url("/").toString(),
+                    apiKeyAlias = "test",
+                    providerType = ProviderType.OpenAi,
+                    defaultModel = "image-model",
+                    imageModels = listOf("image-model"),
+                    enabled = true,
+                    lastTestedAt = null,
+                    lastStatus = null
+                ),
+                apiKey = "test-key",
+                request = GenerateImageRequest(
+                    prompt = "make it cinematic",
+                    model = "image-model",
+                    sourceImagePaths = listOf(sourceFile.absolutePath)
+                )
+            )
+
+            assertArrayEquals(imageBytes, Base64.getDecoder().decode(result.base64Images.single()))
+            val request = server.takeRequest()
+            assertEquals("/v1/images/edits", request.path)
+            val body = request.body.readUtf8()
+            assertTrue(body.contains("name=\"image\""))
+            assertTrue(body.contains("filename=\"${sourceFile.name}\""))
+            assertTrue(body.contains("make it cinematic"))
+        } finally {
+            server.shutdown()
+            sourceFile.delete()
         }
     }
 }
